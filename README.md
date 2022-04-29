@@ -2,6 +2,12 @@
 # Systemd-CryptSetup operation combined with initramfs-tools
 
 ## Installation:
+### TLDR:
+If you just 'want it to work'  then run `sudo ./install.sh`.  and everything *should* work.  It will install Docker on your host system and then do all the work inside docker, so there is minimal impact.  the CWD will get some extra packages added to it, plus some extra directories with source files inside, but you can ignore all of that - once the script has completed successfully this entire directory can be removed.
+
+### I want to understand!
+0. Read the scripts for full details of what's happening.  They've been documented by function names, and should be reasonably easy to understand both what's happening and why it is happening.
+	start with install.sh 'tldr_just_Work' and read the rest of the functions from there.
 1. cryptroot
 	replaces /usr/share/initramfs/local-top/cryptroot
 2. cryptsetup_functions
@@ -23,7 +29,6 @@ This will create the deb files for system in the current working directory.
 To build inside a fresh docker image:
 ./build_systemd_with_tpm2_support.sh
 
-OR
+Or, to build on this host directly:
 ./build_systemd_with_tpm2_support.sh on_this_host
 
-to build on this host directly.

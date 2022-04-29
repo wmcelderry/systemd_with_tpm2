@@ -1,0 +1,687 @@
+if [ "${0#/usr/share/initramfs-tools/hooks/}" != "$0" ] ||
+        [ "${0#/etc/initramfs-tools/hooks/}" != "$0" ]; then
+    # called from an initramfs-tools hook script
+    TABFILE="$DESTDIR/cryptroot/crypttab"
+elif [ "${0#/scripts/}" != "$0" ]; then
+    # called at initramfs stage from a boot script
+    TABFILE="/cryptroot/crypttab"
+    CRYPTROOT_COUNT_FILE="/run/cryptroot.initrd.cnt"
+else
+    TABFILE="${TABFILE-/etc/crypttab}"
+fi
+export DM_DEFAULT_NAME_MANGLING_MODE=hex # for dmsetup(8)
+
+# Logging helpers. Send the argument list to plymouth(1), or fold it
+# and print it to the standard error.
+cryptsetup_message() {
+    local IFS=' '
+    if [ "${0#/scripts/}" != "$0" ] && [ -x /bin/plymouth ] && plymouth --ping; then
+        plymouth message --text="cryptsetup: $*"
+    elif [ ${#*} -lt 70 ]; then
+        echo "cryptsetup: $*" >&2
+    else
+        # use busybox's fold(1) and sed(1) at initramfs stage
+        echo "cryptsetup: $*" | fold -s | sed '1! s/^/    /' >&2
+    fi
+    return 0
+}
+
+# crypttab_parse_options([--export], [--quiet], [--missing-path={ignore|warn|fail}])
+#   Parse $_CRYPTTAB_OPTIONS, a comma-separated option string from the
+#   crypttab(5) 4th column, and sets corresponding variables
+#   CRYPTTAB_OPTION_<option>=<value> (which are added to the environment
+#   if --export is set).  If --path-exists isn't set to "ignore" (the
+#   default), then options taking a file name, such as header=<path>,
+#   need to point to an existing path, otherwise a warning is printed;
+#   and an error is raised if the value is set to "fail".
+#   For error and warning messages, CRYPTTAB_NAME, (resp. CRYPTTAB_KEY)
+#   should be set to the (unmangled) mapped device name (resp. key
+#   file).
+#   Moreover CRYPTTAB_TYPE is set the device type.
+#   Return 1 on parsing error, 0 otherwise (incl. if unknown options
+#   were encountered).
+crypttab_parse_options() {
+    local quiet="n" export="n" missing_path="ignore"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --quiet) quiet="y";;
+            --export) export="y";;
+            --missing-path=*) missing_path="${1#--missing-path=}";;
+            *) cryptsetup_message "WARNING: crypttab_parse_options(): unknown option $1"
+        esac
+        shift
+    done
+
+    local IFS=',' x OPTION VALUE
+    unset -v CRYPTTAB_OPTION_cipher \
+             CRYPTTAB_OPTION_size \
+             CRYPTTAB_OPTION_sector_size \
+             CRYPTTAB_OPTION_hash \
+             CRYPTTAB_OPTION_offset \
+             CRYPTTAB_OPTION_skip \
+             CRYPTTAB_OPTION_verify \
+             CRYPTTAB_OPTION_readonly \
+             CRYPTTAB_OPTION_discard \
+             CRYPTTAB_OPTION_plain \
+             CRYPTTAB_OPTION_luks \
+             CRYPTTAB_OPTION_tcrypt \
+             CRYPTTAB_OPTION_veracrypt \
+             CRYPTTAB_OPTION_bitlk \
+             CRYPTTAB_OPTION_swap \
+             CRYPTTAB_OPTION_tmp \
+             CRYPTTAB_OPTION_check \
+             CRYPTTAB_OPTION_checkargs \
+             CRYPTTAB_OPTION_tries \
+             CRYPTTAB_OPTION_initramfs \
+             CRYPTTAB_OPTION_noearly \
+             CRYPTTAB_OPTION_noauto \
+             CRYPTTAB_OPTION_loud \
+             CRYPTTAB_OPTION_quiet \
+             CRYPTTAB_OPTION_keyscript \
+             CRYPTTAB_OPTION_keyslot \
+             CRYPTTAB_OPTION_header \
+             CRYPTTAB_OPTION_tcrypthidden \
+             CRYPTTAB_OPTION_same_cpu_crypt \
+             CRYPTTAB_OPTION_submit_from_crypt_cpus \
+             CRYPTTAB_OPTION_no_read_workqueue \
+             CRYPTTAB_OPTION_no_write_workqueue
+    # use $_CRYPTTAB_OPTIONS not $CRYPTTAB_OPTIONS as options values may
+    # contain '\054' which is decoded to ',' in the latter
+    for x in $_CRYPTTAB_OPTIONS; do
+        OPTION="${x%%=*}"
+        VALUE="${x#*=}"
+        if [ "$x" = "$OPTION" ]; then
+            unset -v VALUE
+        else
+            VALUE="$(printf '%b' "$VALUE")"
+        fi
+        if ! crypttab_validate_option; then
+            if [ "$quiet" = "n" ]; then
+                cryptsetup_message "ERROR: $CRYPTTAB_NAME: invalid value for '${x%%=*}' option, skipping"
+            fi
+            return 1
+        elif [ -z "${OPTION+x}" ]; then
+            continue
+        fi
+        if [ "$export" = "y" ]; then
+            export "CRYPTTAB_OPTION_$OPTION"="${VALUE-yes}"
+        else
+            eval "CRYPTTAB_OPTION_$OPTION"='${VALUE-yes}'
+        fi
+    done
+    IFS=" "
+
+    if ! _get_crypt_type; then # set CRYPTTAB_TYPE to the type of crypt device
+        CRYPTTAB_TYPE="plain"
+        if [ "$quiet" = "n" ]; then
+            cryptsetup_message "WARNING: $CRYPTTAB_NAME: couldn't determine device type," \
+                               "assuming default ($CRYPTTAB_TYPE)."
+        fi
+    fi
+
+    if [ "$quiet" = "n" ] && [ -n "${CRYPTTAB_OPTION_header+x}" ] && [ "$CRYPTTAB_TYPE" != "luks" ]; then
+        cryptsetup_message "WARNING: $CRYPTTAB_NAME: Headers are only supported for LUKS devices."
+    fi
+    if [ "$CRYPTTAB_TYPE" = "plain" ]; then
+        # the compiled-in default for these are subject to change
+        options='cipher size'
+        if [ -n "${CRYPTTAB_OPTION_keyscript+x}" ] || [ "$CRYPTTAB_KEY" = "none" ]; then
+            options="$options hash" # --hash is being ignored in plain mode with keyfile specified
+        fi
+        for o in $options; do
+            if [ "$quiet" = "n" ] && eval [ -z "\${CRYPTTAB_OPTION_$o+x}" ]; then
+                cryptsetup_message "WARNING: Option '$o' missing in crypttab for plain dm-crypt" \
+                    "mapping $CRYPTTAB_NAME. Please read /usr/share/doc/cryptsetup-initramfs/README.initramfs.gz and" \
+                    "add the correct '$o' option to your crypttab(5)."
+            fi
+        done
+    fi
+}
+
+# crypttab_validate_option()
+#   Validate $OPTION=$VALUE (or flag $OPTION if VALUE is unset).  return
+#   1 on error, unsets OPTION for unknown or useless options.
+crypttab_validate_option() {
+    # option aliases
+    case "$OPTION" in
+        read-only) OPTION="readonly";;
+        key-slot) OPTION="keyslot";;
+        tcrypt-hidden) OPTION="tcrypthidden";;
+        tcrypt-veracrypt) OPTION="veracrypt";;
+    esac
+
+    # sanitize the option name so CRYPTTAB_OPTION_$OPTION is a valid variable name
+    local o="$OPTION"
+    case "$o" in
+        keyfile-offset) OPTION="keyfile_offset";;
+        keyfile-size) OPTION="keyfile_size";;
+        sector-size) OPTION="sector_size";;
+        same-cpu-crypt) OPTION="same_cpu_crypt";;
+        submit-from-crypt-cpus) OPTION="submit_from_crypt_cpus";;
+        no-read-workqueue) OPTION="no_read_workqueue";;
+        no-write-workqueue) OPTION="no_write_workqueue";;
+    esac
+
+    case "$o" in
+        # value must be a non-empty string
+        cipher|hash)
+            [ -n "${VALUE:+x}" ] || return 1
+        ;;
+        # value must be a non-empty string, and an existing path if --missing-path is set
+        header)
+            [ -n "${VALUE:+x}" ] || return 1
+            if [ "$missing_path" != "ignore" ]; then
+                if [ ! -e "$VALUE" ]; then
+                    cryptsetup_message "WARNING: $CRYPTTAB_NAME: $VALUE does not exist";
+                    [ "$missing_path" = "warn" ] || return 1
+                fi
+            fi
+        ;;
+        # numeric options >0
+        size|keyfile-size|sector-size)
+            if ! printf '%s' "${VALUE-}" | grep -Exq "0*[1-9][0-9]*"; then
+                return 1
+            fi
+        ;;
+        # numeric options >=0
+        offset|skip|tries|keyslot|keyfile-offset)
+            if ! printf '%s' "${VALUE-}" | grep -Exq "[0-9]+"; then
+                return 1
+            fi
+        ;;
+        tmp)
+            if [ -z "${VALUE+x}" ]; then
+                VALUE="ext4" # 'tmp flag'
+            elif [ -z "$VALUE" ]; then
+                return 1
+            fi
+        ;;
+        check)
+            if [ -z "${VALUE+x}" ]; then
+                if [ -n "${CRYPTDISKS_CHECK-}" ]; then
+                    VALUE="$CRYPTDISKS_CHECK"
+                else
+                    unset -v OPTION
+                    return 0
+                fi
+            fi
+            if [ "${VALUE#/}" = "$VALUE" ]; then
+                VALUE="/lib/cryptsetup/checks/$VALUE"
+            fi
+            if [ ! -x "$VALUE" ] || [ ! -f "$VALUE" ]; then
+                return 1
+            fi
+        ;;
+        checkargs)
+            [ -n "${VALUE+x}" ] || return 1 # must have a value (possibly empty)
+        ;;
+        keyscript)
+            [ -n "${VALUE:+x}" ] || return 1 # must have a value
+            if [ "${VALUE#/}" = "$VALUE" ]; then
+                VALUE="/lib/cryptsetup/scripts/$VALUE"
+            fi
+            if [ ! -x "$VALUE" ] || [ ! -f "$VALUE" ]; then
+                return 1
+            fi
+        ;;
+        # and now the flags
+        verify) ;;
+        loud) ;;
+        quiet) ;;
+        initramfs) ;;
+        noearly) ;;
+        noauto) ;;
+        readonly) ;;
+        discard) ;;
+        plain) ;;
+        luks) ;;
+        swap) ;;
+        tcrypt) ;;
+        veracrypt) ;;
+        tcrypthidden) ;;
+        bitlk) ;;
+        same-cpu-crypt) ;;
+        submit-from-crypt-cpus) ;;
+        no-read-workqueue) ;;
+        no-write-workqueue) ;;
+        *)
+            if [ "${quiet:-n}" = "n" ]; then
+                cryptsetup_message "WARNING: $CRYPTTAB_NAME: ignoring unknown option '$o'";
+            fi
+            unset -v OPTION
+        ;;
+    esac
+}
+
+# crypttab_resolve_source()
+#   Resolve the CRYPTTAB_SOURCE variable, containing value of the second
+#   field of a crypttab(5)-like file.
+#   On error (non-existing source), CRYPTTAB_SOURCE is not changed and 1
+#   is returned.
+crypttab_resolve_source() {
+    # return immediately if source is a regular file
+    [ ! -f "$CRYPTTAB_SOURCE" ] || return 0
+    # otherwise resolve the block device specification
+    local dev="$CRYPTTAB_SOURCE"
+    dev="$(_resolve_device_spec "$dev")" && CRYPTTAB_SOURCE="$dev" || return 1
+}
+
+# run_keyscript($tried_count)
+#   exec()'ute `$CRYPTTAB_OPTION_keyscript "$CRYPTTAB_KEY"`.
+#   If $CRYPTTAB_OPTION_keyscript is unset or null and $CRYPTTAB_KEY is
+#   "none" (meaning the passphrase is to be read interactively from the
+#   console), then use `/lib/cryptsetup/askpass` as keyscript with a
+#   suitable prompt message instead.
+#   Since the shell process is replaced with the $CRYPTTAB_OPTION_keyscript
+#   program, run_keyscript() must be used on the left-hand side of a
+#   pipe, or similar.
+run_keyscript() {
+    local keyscript keyscriptarg="$CRYPTTAB_KEY"
+    export CRYPTTAB_NAME CRYPTTAB_SOURCE CRYPTTAB_OPTIONS
+    export _CRYPTTAB_NAME _CRYPTTAB_SOURCE _CRYPTTAB_OPTIONS
+    export CRYPTTAB_TRIED="$1"
+
+    if [ -n "${CRYPTTAB_OPTION_keyscript+x}" ] && \
+            [ "$CRYPTTAB_OPTION_keyscript" != "/lib/cryptsetup/askpass" ]; then
+        # 'keyscript' option is present: export its argument as $CRYPTTAB_KEY
+        export CRYPTTAB_KEY _CRYPTTAB_KEY
+        keyscript="$CRYPTTAB_OPTION_keyscript"
+    elif [ "$keyscriptarg" = "none" ]; then
+        # don't export the prompt message as CRYPTTAB_KEY
+        keyscript="/lib/cryptsetup/askpass"
+        keyscriptarg="Please unlock disk $CRYPTTAB_NAME: "
+    fi
+
+    exec "$keyscript" "$keyscriptarg"
+}
+
+# _get_crypt_type()
+#    Set CRYPTTAB_TYPE to the mapping type, depending on its
+#    $CRYPTTAB_OPTION_<option> values
+#    Return a non-zero status if the mapping couldn't be determined
+_get_crypt_type() {
+    local s="$CRYPTTAB_SOURCE" t="" blk_t
+
+    if [ "${CRYPTTAB_OPTION_luks-}" = "yes" ]; then
+        t="luks"
+    elif [ "${CRYPTTAB_OPTION_tcrypt-}" = "yes" ]; then
+        t="tcrypt"
+    elif [ "${CRYPTTAB_OPTION_plain-}" = "yes" ]; then
+        t="plain"
+    elif [ "${CRYPTTAB_OPTION_bitlk-}" = "yes" ]; then
+        t="bitlk"
+    elif [ -n "${CRYPTTAB_OPTION_header+x}" ]; then
+        # detached headers are only supported for LUKS devices
+        if [ -e "$CRYPTTAB_OPTION_header" ] && /sbin/cryptsetup isLuks -- "$CRYPTTAB_OPTION_header"; then
+            t="luks"
+        fi
+    elif [ -f "$s" ] || s="$(_resolve_device_spec "$CRYPTTAB_SOURCE")"; then
+        if /sbin/cryptsetup isLuks -- "$s"; then
+            t="luks"
+        elif blk_t="$(blkid -s TYPE -o value -- "$s")" && [ "$blk_t" = "BitLocker" ]; then
+            t="bitlk"
+        fi
+    fi
+
+    [ -n "$t" ] || return 1
+    CRYPTTAB_TYPE="$t"
+}
+
+# unlock_mapping([$keyfile])
+#   Run cryptsetup(8) with suitable options and arguments to unlock
+#   $CRYPTTAB_SOURCE and setup dm-crypt managed device-mapper mapping
+#   $CRYPTTAB_NAME.
+unlock_mapping() {
+    local keyfile="${1:--}"
+
+    if [ "$CRYPTTAB_TYPE" = "luks" ] || [ "$CRYPTTAB_TYPE" = "tcrypt" ]; then
+        # ignored for LUKS and TCRYPT devices
+        unset -v CRYPTTAB_OPTION_cipher \
+                 CRYPTTAB_OPTION_size \
+                 CRYPTTAB_OPTION_hash \
+                 CRYPTTAB_OPTION_offset \
+                 CRYPTTAB_OPTION_skip
+    fi
+    if [ "$CRYPTTAB_TYPE" = "plain" ] || [ "$CRYPTTAB_TYPE" = "tcrypt" ]; then
+        unset -v CRYPTTAB_OPTION_keyfile_size
+    fi
+    if [ "$CRYPTTAB_TYPE" = "tcrypt" ]; then
+        # ignored for TCRYPT devices
+        unset -v CRYPTTAB_OPTION_keyfile_offset
+    else
+        # ignored for non-TCRYPT devices
+        unset -v CRYPTTAB_OPTION_veracrypt CRYPTTAB_OPTION_tcrypthidden
+    fi
+
+    if [ "$CRYPTTAB_TYPE" != "luks" ]; then
+        # ignored for non-LUKS devices
+        unset -v CRYPTTAB_OPTION_keyslot
+    fi
+
+    /sbin/cryptsetup -T1 \
+        ${CRYPTTAB_OPTION_header:+--header="$CRYPTTAB_OPTION_header"} \
+        ${CRYPTTAB_OPTION_cipher:+--cipher="$CRYPTTAB_OPTION_cipher"} \
+        ${CRYPTTAB_OPTION_size:+--key-size="$CRYPTTAB_OPTION_size"} \
+        ${CRYPTTAB_OPTION_sector_size:+--sector-size="$CRYPTTAB_OPTION_sector_size"} \
+        ${CRYPTTAB_OPTION_hash:+--hash="$CRYPTTAB_OPTION_hash"} \
+        ${CRYPTTAB_OPTION_offset:+--offset="$CRYPTTAB_OPTION_offset"} \
+        ${CRYPTTAB_OPTION_skip:+--skip="$CRYPTTAB_OPTION_skip"} \
+        ${CRYPTTAB_OPTION_verify:+--verify-passphrase} \
+        ${CRYPTTAB_OPTION_readonly:+--readonly} \
+        ${CRYPTTAB_OPTION_discard:+--allow-discards} \
+        ${CRYPTTAB_OPTION_veracrypt:+--veracrypt} \
+        ${CRYPTTAB_OPTION_keyslot:+--key-slot="$CRYPTTAB_OPTION_keyslot"} \
+        ${CRYPTTAB_OPTION_tcrypthidden:+--tcrypt-hidden} \
+        ${CRYPTTAB_OPTION_keyfile_size:+--keyfile-size="$CRYPTTAB_OPTION_keyfile_size"} \
+        ${CRYPTTAB_OPTION_keyfile_offset:+--keyfile-offset="$CRYPTTAB_OPTION_keyfile_offset"} \
+        ${CRYPTTAB_OPTION_same_cpu_crypt:+--perf-same_cpu_crypt} \
+        ${CRYPTTAB_OPTION_submit_from_crypt_cpus:+--perf-submit_from_crypt_cpus} \
+        ${CRYPTTAB_OPTION_no_read_workqueue:+--perf-no_read_workqueue} \
+        ${CRYPTTAB_OPTION_no_write_workqueue:+--perf-no_write_workqueue} \
+        --type="$CRYPTTAB_TYPE" --key-file="$keyfile" \
+        open -- "$CRYPTTAB_SOURCE" "$CRYPTTAB_NAME"
+}
+
+# resume_mapping([$keyfile])
+#   Run cryptsetup(8) with suitable options and arguments to resume
+#   $CRYPTTAB_NAME.
+resume_mapping() {
+    local keyfile="${1:--}"
+
+    if [ "$CRYPTTAB_TYPE" != "luks" ]; then
+        cryptsetup_message "ERROR: $CRYPTTAB_NAME: unable to resume non-luks device"
+        return 1
+    fi
+
+    /sbin/cryptsetup -T1 \
+        ${CRYPTTAB_OPTION_header:+--header="$CRYPTTAB_OPTION_header"} \
+        ${CRYPTTAB_OPTION_keyslot:+--key-slot="$CRYPTTAB_OPTION_keyslot"} \
+        ${CRYPTTAB_OPTION_keyfile_size:+--keyfile-size="$CRYPTTAB_OPTION_keyfile_size"} \
+        ${CRYPTTAB_OPTION_keyfile_offset:+--keyfile-offset="$CRYPTTAB_OPTION_keyfile_offset"} \
+        --type="$CRYPTTAB_TYPE" --key-file="$keyfile" \
+        luksResume "$CRYPTTAB_NAME"
+}
+
+# resume_device($device)
+#   Resume $device with endless retries. Used by cryptsetup-suspend-wrapper.
+resume_device() {
+    local device="$1"
+    # check if device is really suspended
+    if dmsetup info -c --noheadings -o suspended -- "$device" 2>/dev/null | grep -Fxq "Active"; then
+        cryptsetup_message "ERROR: $CRYPTTAB_NAME: device was not suspendend"
+        sleep 5
+        return 1
+    fi
+
+    crypttab_find_entry "$device"
+    crypttab_parse_options --quiet
+    _get_crypt_type
+
+    # Loop endlessly until the resume command succeeded
+    while true; do
+        if [ "$CRYPTTAB_KEY" != "none" ]; then
+            resume_mapping "$CRYPTTAB_KEY" && break || true
+        else
+            run_keyscript 1 | resume_mapping && break || true
+        fi
+    done
+}
+
+# crypttab_key_check()
+#   Sanity checks for keyfile $CRYPTTAB_KEY.  CRYPTTAB_NAME and
+#   CRYPTTAB_OPTION_<option> must be set appropriately.
+crypttab_key_check() {
+    if [ ! -f "$CRYPTTAB_KEY" ] && [ ! -b "$CRYPTTAB_KEY" ] && [ ! -c "$CRYPTTAB_KEY" ] ; then
+        cryptsetup_message "WARNING: $CRYPTTAB_NAME: keyfile '$CRYPTTAB_KEY' not found"
+        return 0
+    fi
+
+    if [ "$CRYPTTAB_KEY" = "/dev/random" ] || [ "$CRYPTTAB_KEY" = "/dev/urandom" ]; then
+        if [ -n "${CRYPTTAB_OPTION_luks+x}" ] || [ -n "${CRYPTTAB_OPTION_tcrypt+x}" ]; then
+            cryptsetup_message "WARNING: $CRYPTTAB_NAME: has random data as key"
+            return 1
+        else
+            return 0
+        fi
+    fi
+
+    local mode="$(stat -L -c"%04a" -- "$CRYPTTAB_KEY")"
+    if [ $(stat -L -c"%u" -- "$CRYPTTAB_KEY") -ne 0 ] || [ "${mode%00}" = "$mode" ]; then
+        cryptsetup_message "WARNING: $CRYPTTAB_NAME: key file $CRYPTTAB_KEY has" \
+            "insecure ownership, see /usr/share/doc/cryptsetup/README.Debian.gz."
+    fi
+}
+
+# _resolve_device_spec($spec)
+#   Resolve LABEL=<label>, UUID=<uuid>, PARTUUID=<partuuid> and
+#   PARTLABEL=<partlabel> to a block special device.  If $spec is
+#   already a (link to a block special device) then it is echoed as is.
+#   Return 1 if $spec doesn't correspond to a block special device.
+_resolve_device_spec() {
+    local spec="$1"
+    case "$spec" in
+        UUID=*|LABEL=*|PARTUUID=*|PARTLABEL=*)
+            # don't use /dev/disk/by-label/... to avoid gessing udev mangling
+            spec="$(blkid -l -t "$spec" -o device)" || spec=
+        ;;
+    esac
+    [ -b "$spec" ] && printf '%s\n' "$spec" || return 1
+}
+
+# dm_blkdevname($name)
+#   Print the mapped device name, or return 1 if the the device doesn't exist.
+dm_blkdevname() {
+    local name="$1" dev
+    # /dev/mapper/$name isn't reliable due to udev mangling
+    if dev="$(dmsetup info -c --noheadings -o blkdevname -- "$name" 2>/dev/null)" &&
+            [ -n "$dev" ] && [ -b "/dev/$dev" ]; then
+        echo "/dev/$dev"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# dm_active_crypt_devices()
+#   Print list of active dm-crypt devices.
+dm_active_crypt_devices() {
+    # XXX: that's not robust wrt udev mangling of special characters such as blank or colons
+    dmsetup table --target crypt | sed -n 's/:.*//p'
+}
+
+# crypttab_find_entry([--quiet], $target)
+#   Search in the crypttab(5) for the given $target, and sets the
+#   variables CRYPTTAB_NAME, CRYPTTAB_SOURCE, CRYPTTAB_KEY and
+#   CRYPTTAB_OPTIONS accordingly.  (In addition _CRYPTTAB_NAME,
+#   _CRYPTTAB_SOURCE, _CRYPTTAB_KEY and _CRYPTTAB_OPTIONS are set to the
+#   unmangled values before decoding the escape sequence.)  If there are
+#   duplicates then only the first match is considered.
+#   Return 0 if a match is found, and 1 otherwise.
+crypttab_find_entry() {
+    local target="$1" quiet="n" IFS
+    if [ "$target" = "--quiet" ] && [ $# -eq 2 ]; then
+        quiet="y"
+        target="$2"
+    fi
+
+    if [ -f "$TABFILE" ]; then
+        while IFS=" 	" read -r _CRYPTTAB_NAME _CRYPTTAB_SOURCE _CRYPTTAB_KEY _CRYPTTAB_OPTIONS; do
+            if [ "${_CRYPTTAB_NAME#\#}" != "$_CRYPTTAB_NAME" ] || [ -z "$_CRYPTTAB_NAME" ]; then
+                # ignore comments and empty lines
+                continue
+            fi
+
+            # unmangle names
+            CRYPTTAB_NAME="$(printf '%b' "$_CRYPTTAB_NAME")"
+            if [ -z "$_CRYPTTAB_SOURCE" ] || [ -z "$_CRYPTTAB_KEY" ]; then
+                cryptsetup_message "WARNING: '$CRYPTTAB_NAME' is missing some arguments, see crypttab(5)"
+                continue
+            elif [ "$CRYPTTAB_NAME" = "$target" ]; then
+                CRYPTTAB_SOURCE="$( printf '%b' "$_CRYPTTAB_SOURCE" )"
+                CRYPTTAB_KEY="$(    printf '%b' "$_CRYPTTAB_KEY"    )"
+                CRYPTTAB_OPTIONS="$(printf '%b' "$_CRYPTTAB_OPTIONS")"
+                return 0
+            fi
+        done <"$TABFILE"
+    fi
+
+    if [ "$quiet" = "n" ]; then
+        cryptsetup_message "WARNING: target '$target' not found in $TABFILE"
+    fi
+    return 1
+}
+
+# crypttab_foreach_entry($callback)
+#   Iterate through the crypttab(5) and run the given $callback for each
+#   entry found. Variables CRYPTTAB_NAME, CRYPTTAB_SOURCE, CRYPTTAB_KEY
+#   and CRYPTTAB_OPTIONS are set accordingly and available to the
+#   $callback.  (In addition _CRYPTTAB_NAME, _CRYPTTAB_SOURCE,
+#   _CRYPTTAB_KEY and _CRYPTTAB_OPTIONS are set to the original values
+#   before decoding the escape sequence.)
+#   Return 0 if a match is found, and 1 otherwise.
+crypttab_foreach_entry() {
+    local callback="$1" IFS
+    local _CRYPTTAB_NAME _CRYPTTAB_SOURCE _CRYPTTAB_KEY _CRYPTTAB_OPTIONS \
+           CRYPTTAB_NAME  CRYPTTAB_SOURCE  CRYPTTAB_KEY  CRYPTTAB_OPTIONS
+
+    [ -f "$TABFILE" ] || return
+    while IFS=" 	" read -r _CRYPTTAB_NAME _CRYPTTAB_SOURCE _CRYPTTAB_KEY _CRYPTTAB_OPTIONS <&9; do
+        if [ "${_CRYPTTAB_NAME#\#}" != "$_CRYPTTAB_NAME" ] || [ -z "$_CRYPTTAB_NAME" ]; then
+            # ignore comments and empty lines
+            continue
+        fi
+
+        # unmangle names
+        CRYPTTAB_NAME="$(printf '%b' "$_CRYPTTAB_NAME")"
+
+        if [ -z "$_CRYPTTAB_SOURCE" ] || [ -z "$_CRYPTTAB_KEY" ]; then
+            cryptsetup_message "WARNING: '$CRYPTTAB_NAME' is missing some arguments, see crypttab(5)"
+            continue
+        fi
+
+        CRYPTTAB_SOURCE="$( printf '%b' "$_CRYPTTAB_SOURCE" )"
+        CRYPTTAB_KEY="$(    printf '%b' "$_CRYPTTAB_KEY"    )"
+        CRYPTTAB_OPTIONS="$(printf '%b' "$_CRYPTTAB_OPTIONS")"
+
+        "$callback" 9<&-
+    done 9<"$TABFILE"
+}
+
+# _device_uuid($device)
+#   Print the UUID attribute of given block special $device.  Return 0
+#   on success, 1 on error.
+_device_uuid() {
+    local device="$1" uuid
+    if uuid="$(blkid -s UUID -o value -- "$device")" && [ -n "$uuid" ]; then
+        printf '%s\n' "$uuid"
+    else
+        return 1
+    fi
+}
+
+# _resolve_device({$device | $spec})
+#   Take a path to (or spec for) a block special device, and set DEV to
+#   the (symlink to block) device, and MAJ (resp. MIN) to its major-ID
+#   (resp. minor ID) decimal value.  On error these variables are not
+#   changed and 1 is returned.
+_resolve_device() {
+    local spec="$1" dev devno maj min
+    if dev="$(_resolve_device_spec "$spec")" &&
+            devno="$(stat -L -c"%t:%T" -- "$dev" 2>/dev/null)" &&
+            maj="${devno%:*}" && min="${devno#*:}" &&
+            [ "$devno" = "$maj:$min" ] && [ -n "$maj" ] && [ -n "$min" ] &&
+            maj=$(( 0x$maj )) && min=$(( 0x$min )) && [ $maj -gt 0 ]; then
+        DEV="$dev"
+        MAJ="$maj"
+        MIN="$min"
+        return 0
+    else
+        cryptsetup_message "ERROR: Couldn't resolve device $spec"
+    fi
+    return 1
+}
+
+# get_mnt_devno($mountpoint)
+#   Print the major:minor device ID(s) holding the file system currently
+#   mounted currenty mounted on $mountpoint.
+#   Return 0 on success, 1 on error (if $mountpoint is not a mountpoint).
+#   devno will be empty if the filesystem must be excluded.
+get_mnt_devno() {
+    local wantmount="$1" devnos="" uuid dev IFS
+    local spec mountpoint fstype _ DEV MAJ MIN
+
+    while IFS=" 	" read -r spec mountpoint fstype _; do
+        # treat lines starting with '#' as comments; /proc/mounts
+        # doesn't seem to contain these but per procfs(5) the format of
+        # that file is analogous to fstab(5)'s
+        if [ "${spec#\#}" = "$spec" ] && [ -n "$spec" ] &&
+                [ "$(printf '%b' "$mountpoint")" = "$wantmount" ]; then
+            # take the last mountpoint if used several times (shadowed)
+            unset -v devnos
+            spec="$(printf '%b' "$spec")"
+            fstype="$(printf '%b' "$fstype")"
+            if [ "$fstype" = "zfs" ]; then
+                # Ignore ZFS entries as they don't have a major/minor and won't
+                # be imported when local-top cryptroot script will ran.
+                # Returns success with empty devno
+                printf ''
+                return 0
+            fi
+            _resolve_device "$spec" || continue # _resolve_device() already warns on error
+            if [ "$fstype" = "btrfs" ]; then
+                # btrfs can span over multiple devices
+                if uuid="$(_device_uuid "$DEV")"; then
+                    for dev in "/sys/fs/$fstype/$uuid/devices"/*/dev; do
+                        devnos="${devnos:+$devnos }$(cat "$dev")"
+                    done
+                else
+                    cryptsetup_message "ERROR: $spec: Couldn't determine UUID"
+                fi
+            elif [ -n "$fstype" ]; then
+                devnos="$MAJ:$MIN"
+            fi
+        fi
+    done </proc/mounts
+
+    if [ -z "${devnos:+x}" ]; then
+        return 1 # not found
+    else
+        printf '%s' "$devnos"
+    fi
+}
+
+# foreach_cryptdev($callback, $maj:$min, [$maj:$min ..])
+#   Run $callback on the (unmangled) name of each dm-crypt device
+#   recursively holding $maj:$min (typically corresponding to an md,
+#   linear, or dm-crypt device).  Slaves that aren't dm-crypt devices
+#   are ignored.
+foreach_cryptdev() {
+    local callback="$1" devno base
+    shift
+    for devno in "$@"; do
+        base="/sys/dev/block/$devno"
+        if [ ! -d "$base" ]; then
+            cryptsetup_message "ERROR: Couldn't find sysfs directory for $devno"
+            return 1
+        fi
+        _foreach_cryptdev "$callback" "$base"
+    done
+}
+_foreach_cryptdev() {
+    local callback="$1" d="$2" devno maj min name slave
+    [ -d "$d/slaves" ] || return 0
+    if [ -d "$d/dm" ] && devno="$(cat "$d/dev")" &&
+            maj="${devno%:*}" && min="${devno#*:}" &&
+            [ "$devno" = "$maj:$min" ] && [ -n "$maj" ] && [ -n "$min" ] &&
+            [ "$(dmsetup info -c --noheadings -o subsystem -j "$maj" -m "$min")" = "CRYPT" ] &&
+            name="$(dmsetup info -c --noheadings -o unmangled_name -j "$maj" -m "$min")"; then
+        "$callback" "$name"
+    fi
+    for slave in "$d/slaves"/*; do
+        if [ -d "$slave" ] && slave="$(realpath -e -- "$slave")"; then
+            _foreach_cryptdev "$callback" "$slave"
+        fi
+    done
+}
+
+# vim: set filetype=sh :

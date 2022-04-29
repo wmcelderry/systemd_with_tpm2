@@ -35,16 +35,20 @@ function build_systemd_with_tpm2_support()
 
 
 case $1 in
-	"in_docker")
+	"on_this_host")
+		#These could be done in a Dockerfile.
+		#will need a timezone setting!
 		enable_source_packages
 		update_apt
 		install_dependencies
 		get_systemd_build_dependencies
+
+		#this needs to be done inside the image:
 		get_systemd_src
 		build_systemd_with_tpm2_support
 		;;
 	*)
-		docker run --rm -it -v $(pwd):/build -w /build ubuntu:22.04 ./build_systemd_with_tpm2_support.sh "in_docker"
+		docker run --rm -it -v $(pwd):/build -w /build ubuntu:22.04 ./build_systemd_with_tpm2_support.sh "on_this_host"
 		;;
 esac
 

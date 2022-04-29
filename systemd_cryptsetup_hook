@@ -1,0 +1,26 @@
+#!/bin/sh
+
+PREREQ=""
+
+prereqs()
+{
+    echo "$PREREQ"
+}
+
+case "$1" in
+    prereqs)
+        prereqs
+        exit 0
+        ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+#######################################################################
+# Begin real processing
+
+copy_exec /lib/systemd/systemd-cryptsetup /lib/systemd
+for i in /lib/x86_64-linux-gnu/libtss2*
+do
+	copy_exec ${i} /lib/x86_64-linux-gnu
+done

@@ -1,0 +1,13 @@
+diff --git a/cryptroot b/cryptroot
+index 85dbbdd..9b69af2 100755
+--- a/cryptroot
++++ b/cryptroot
+@@ -155,7 +155,7 @@ setup_mapping() {
+ 
+     local count=0 maxtries="${CRYPTTAB_OPTION_tries:-3}" fstype vg rv
+     while [ $maxtries -le 0 ] || [ $count -lt $maxtries ]; do
+-	    if [ -z "${CRYPTTAB_OPTION_keyscript+x}" ] && [ "$CRYPTTAB_KEY" != "none" ] ; then
++	    if [ -z "${CRYPTTAB_OPTION_keyscript+x}" ] && ( [ -n "${CRYPTTAB_OPTION_tpm2_device}" ] || [ "$CRYPTTAB_KEY" != "none" ] ); then
+             # unlock via keyfile
+             unlock_mapping "$CRYPTTAB_KEY"
+         else

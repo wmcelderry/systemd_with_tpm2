@@ -1,5 +1,11 @@
 #!/bin/bash
 
+mode="${1:-in_docker}"
+
+#Usage:
+# mode = [ on_this_host | in_docker* ]
+# 		defaults to 'in_docker'.
+
 
 function enable_source_packages()
 {
@@ -28,13 +34,13 @@ function get_systemd_src()
 
 function build_systemd_with_tpm2_support()
 {
-		cd systemd-249.11
-		sed -i 's/tpm2=false/tpm2=true/g' debian/rules
-		dpkg-buildpackage -rfakeroot -uc -b 
+	cd systemd-249.11
+	sed -i 's/tpm2=false/tpm2=true/g' debian/rules
+	dpkg-buildpackage -rfakeroot -uc -b
 }
 
 
-case $1 in
+case "$mode" in
 	"on_this_host")
 		#These could be done in a Dockerfile.
 		#will need a timezone setting!
@@ -47,7 +53,7 @@ case $1 in
 		get_systemd_src
 		build_systemd_with_tpm2_support
 		;;
-	*)
+	"in_docker")
 		docker run --rm -it -v $(pwd):/build -w /build ubuntu:22.04 ./build_systemd_with_tpm2_support.sh "on_this_host"
 		;;
 esac

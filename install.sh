@@ -7,7 +7,10 @@ function install_docker()
 
 function compile_systemd_with_tpm2()
 {
-	./build_systemd_with_tpm2_support.sh
+	mkdir -p outputs/systemd_build
+	cd outputs/systemd_build
+	../../build_systemd_with_tpm2_support.sh
+	popd >& /dev/null
 }
 
 function install_systemd_with_tpm2()

@@ -30,10 +30,10 @@ function install_crypt_setup_mod_scripts()
 	cp cryptsetup_functions /usr/lib/cryptsetup/functions
 	cp cryptroot /usr/share/initramfs_tools/scripts/local-top/cryptroot
 
-	#install the initramfs hook to include the required program and libtss2 in the initramfs
-	cp systemd_cryptsetup_hook /etc/initramfs-tools/hooks
-
 	popd >& /dev/null
+
+	#install the initramfs hook to include the required program and libtss2 in the initramfs
+	cp scripts/systemd_cryptsetup_hook /etc/initramfs-tools/hooks
 }
 
 function update_initramfs()

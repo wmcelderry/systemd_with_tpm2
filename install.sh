@@ -17,9 +17,23 @@ function install_systemd_with_tpm2()
 
 function install_crypt_setup_mod_scripts()
 {
-	cp cryptsetup_functions.sh /usr/lib/cryptsetup/functions.sh
+	#apply patches:
+	mkdir -p patched
+	pushd patched >& /dev/null
+
+	cp /usr/lib/cryptsetup/functions cryptsetup_functions
+	cp /usr/share/initramfs_tools/scripts/local-top/cryptroot cryptroot
+
+	patch cryptsetup_functions ../patches/cryptsetup_functions.patch
+	patch cryptroot ../patches/cryptroot.patch
+
+	cp cryptsetup_functions /usr/lib/cryptsetup/functions
 	cp cryptroot /usr/share/initramfs_tools/scripts/local-top/cryptroot
+
+	#install the initramfs hook to include the required program and libtss2 in the initramfs
 	cp systemd_cryptsetup_hook /etc/initramfs-tools/hooks
+
+	popd >& /dev/null
 }
 
 function update_initramfs()

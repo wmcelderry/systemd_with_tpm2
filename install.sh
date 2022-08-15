@@ -1,5 +1,22 @@
 #!/bin/bash
 
+
+function prereqs()
+{
+	#sudo apt install libtss2-dev
+	  #libtss2-dev libtss2-fapi1 libtss2-rc0 libtss2-tctildr0
+
+	cat <<-EOF
+	  1) You must have created /etc/crypttab
+	    e.g.:  /dev/sda2 none tpm2-device=auto
+	    tip: can use blkid to get the UUID of the device too.
+
+	  2) You must have installed necessary TSS2 libraries
+	    e.g. sudo apt install libtss2-dev
+	EOF
+
+	read -p "Enter to continue"
+}
 function install_docker()
 {
 	apt install -y docker.io
@@ -7,15 +24,12 @@ function install_docker()
 
 function compile_systemd_with_tpm2()
 {
-	mkdir -p outputs/systemd_build
-	cd outputs/systemd_build
-	../../build_systemd_with_tpm2_support.sh
-	popd >& /dev/null
+	./build_systemd_with_tpm2_support.sh
 }
 
 function install_systemd_with_tpm2()
 {
-	dpkg -i systemd_249.11-0ubuntu3_amd64.deb
+	dpkg -i systemd_249.11-0ubuntu*_amd64.deb libsystemd0_249.11-0ubuntu*_amd64.deb
 }
 
 function install_crypt_setup_mod_scripts()
@@ -25,13 +39,13 @@ function install_crypt_setup_mod_scripts()
 	pushd patched >& /dev/null
 
 	cp /usr/lib/cryptsetup/functions cryptsetup_functions
-	cp /usr/share/initramfs_tools/scripts/local-top/cryptroot cryptroot
+	cp /usr/share/initramfs-tools/scripts/local-top/cryptroot cryptroot
 
 	patch cryptsetup_functions ../patches/cryptsetup_functions.patch
 	patch cryptroot ../patches/cryptroot.patch
 
 	cp cryptsetup_functions /usr/lib/cryptsetup/functions
-	cp cryptroot /usr/share/initramfs_tools/scripts/local-top/cryptroot
+	cp cryptroot /usr/share/initramfs-tools/scripts/local-top/cryptroot
 
 	popd >& /dev/null
 
@@ -46,6 +60,7 @@ function update_initramfs()
 
 function tldr_just_work()
 {
+	prereqs && \
 	install_docker && \
 	compile_systemd_with_tpm2 && \
 	install_systemd_with_tpm2 && \

@@ -32,3 +32,7 @@ To build inside a fresh docker image:
 Or, to build on this host directly:
 ./build_systemd_with_tpm2_support.sh on_this_host
 
+
+
+# Licensing #
+I've been unable to establish who publishes the files I've patched and how they are licensed, so I've only included the patch here so I do not infringe anyone's copyright or break licensing.

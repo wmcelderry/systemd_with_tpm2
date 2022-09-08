@@ -51,20 +51,20 @@ https://wiki.archlinux.org/title/Data-at-rest_encryption
 
 
 1. create partition format with LUKS (using an Ubuntu Desktop live environment some of this may need to be done from the command line then start the installer)
-  1.1. assign space for unencrypted EFI system partition (stores grub2, Linux Kernel and initrd image or other system software)
-  1.2. assign space for the LVM PV and any other un-encrypted partitions you may want
-  1.3. assign space for the un-encrypted /boot partition (which may be removed if using a unified kernel image after the system has been configured) - done at the end to allow extending the PV partition in to it with pvresize.
+   1.1. assign space for unencrypted EFI system partition (stores grub2, Linux Kernel and initrd image or other system software)
+   1.2. assign space for the LVM PV and any other un-encrypted partitions you may want
+   1.3. assign space for the un-encrypted /boot partition (which may be removed if using a unified kernel image after the system has been configured) - done at the end to allow extending the PV partition in to it with pvresize.
 2. Use lvm
-  2.1. pvcreate
-  2.2. vgcreate
-  2.3. lvcreate
+   2.1. pvcreate
+   2.2. vgcreate
+   2.3. lvcreate
 3. Install Ubuntu in to correct LV and unencrypted EFI system and /boot partitions!
 4. Reboot in to the new Ubuntu environment:
     - the system halts in the initrd shell as it does not know how to unlock the LUKS (cryptrd not created) and find the LV  used as root.
     - the user has to manually unlock the LUKS partition with cryptsetup, then exit the shell and the system continues to boot.
 6. Install git, get this repo, create the crypttab, run install.sh
 7. Store a key in the TPM for LUKS
-    systemd-cryptenroll
+   `systemd-cryptenroll`
 8. Reboot.
 
 

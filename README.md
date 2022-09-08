@@ -66,3 +66,6 @@ https://wiki.archlinux.org/title/Data-at-rest_encryption
 7. Store a key in the TPM for LUKS
     systemd-cryptenroll
 8. Reboot.
+
+
+NB:  This doesn't protect against a modified initrd as yet.  That's another stage of configuring secure boot and creating an (optionally signed) Unified Kernel Image (or enabling key verification with GRUB2 or something along those lines!)  But this is a good step on the way!

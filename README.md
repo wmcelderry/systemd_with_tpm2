@@ -64,7 +64,7 @@ NB: big thanks to the authors of these articles - they helped me get most of the
    - lvcreate
 4. Install Ubuntu in to correct LV and unencrypted EFI system and /boot partitions!
 5. Reboot in to the new Ubuntu environment:
-    - the system halts in the initrd shell as it does not know how to unlock the LUKS (cryptrd not created) and find the LV  used as root.
+    - the system halts in the initrd shell as it does not know how to unlock the LUKS (crypttab not yet created) and find the LV  used as root.
     - the user has to manually unlock the LUKS partition with cryptsetup, then exit the shell and the system continues to boot.
 6. Install git, get this repo, create the crypttab, run install.sh
 7. Store a key in the TPM for LUKS

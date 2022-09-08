@@ -44,20 +44,24 @@ This is a rough and ready summary of the process to get a system running with an
 A lot of this has been developed from the excellent articles in Arch Linux, so if there are steps missing you may need to read around the issues, or ask in the 'Issues' and someone (possibly me) will answer when they can.
 
 Potentially useful pages for more context:
-https://wiki.archlinux.org/title/Trusted_Platform_Module#Data-at-rest_encryption_with_LUKS
-https://wiki.archlinux.org/title/Dm-crypt/Encrypting_an_entire_system
-https://wiki.archlinux.org/title/Data-at-rest_encryption
-(big thanks to the authors of these articles - they helped me get most of the way here!)
+- https://wiki.archlinux.org/title/Trusted_Platform_Module#Data-at-rest_encryption_with_LUKS
+- https://wiki.archlinux.org/title/Dm-crypt/Encrypting_an_entire_system
+- https://wiki.archlinux.org/title/Data-at-rest_encryption
+
+NB: big thanks to the authors of these articles - they helped me get most of the way here!
 
 
-1. create partition format with LUKS (using an Ubuntu Desktop live environment some of this may need to be done from the command line then start the installer)
-   1.1. assign space for unencrypted EFI system partition (stores grub2, Linux Kernel and initrd image or other system software)
-   1.2. assign space for the LVM PV and any other un-encrypted partitions you may want
-   1.3. assign space for the un-encrypted /boot partition (which may be removed if using a unified kernel image after the system has been configured) - done at the end to allow extending the PV partition in to it with pvresize.
+(using an Ubuntu Desktop live environment some of 1 & 2 probably needs to be done before starting the installer)
+
+1. create partitions 
+   - assign space for unencrypted EFI system partition (stores grub2, Linux Kernel and initrd image or other system software)
+   - assign space for the LVM PV and any other un-encrypted partitions you may want
+   - assign space for the un-encrypted /boot partition (which may be removed if using a unified kernel image after the system has been configured) - done at the end to allow extending the PV partition in to it with pvresize.
+2. Format with LUKS
 2. Use lvm
-   2.1. pvcreate
-   2.2. vgcreate
-   2.3. lvcreate
+   - pvcreate
+   - vgcreate
+   - lvcreate
 3. Install Ubuntu in to correct LV and unencrypted EFI system and /boot partitions!
 4. Reboot in to the new Ubuntu environment:
     - the system halts in the initrd shell as it does not know how to unlock the LUKS (cryptrd not created) and find the LV  used as root.

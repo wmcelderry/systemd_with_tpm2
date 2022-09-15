@@ -73,3 +73,15 @@ NB: big thanks to the authors of these articles - they helped me get most of the
 
 
 NB:  This doesn't protect against a modified initrd as yet.  That's another stage of configuring secure boot and creating an (optionally signed) Unified Kernel Image (or enabling key verification with GRUB2 or something along those lines!)  But this is a good step on the way!
+
+# Further Security #
+
+## Security Discussion (Issue) ##
+Check [this issue](https://github.com/wmcelderry/systemd_with_tpm2/issues/2) for more details about below and any discussion of other attacks to be aware of - or to share details of other attacks that users should be aware of!
+
+## Init RD attack ##
+You may want to create a unified kernel - this protects against a modified initrd attack. See: [this repo](https://github.com/wmcelderry/unified_kernel_image)]
+
+
+## SecureBoot ##
+SecureBoot uses cryptographically signed bootloaders to ensure that the BIOS will not even load an attacker's OS on your hardware.  Useful if you are concerned about an attacker repurposing your kit.  There's nothing here for now, so read around the topic and feel free to create an issue with comments or even a Pull Request with a link to your repository here.

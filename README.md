@@ -73,6 +73,7 @@ NB: big thanks to the authors of these articles - they helped me get most of the
 
 
 NB:  This doesn't protect against a modified initrd as yet.  That's another stage of configuring secure boot and creating an (optionally signed) Unified Kernel Image (or enabling key verification with GRUB2 or something along those lines!)  But this is a good step on the way!
+NB2:  Apparently the Linux kernel now measures it's own initrd, so if the systemd-cryptenroll is called with the correct registers, then that may be covered off (see issue 2) linked below.
 
 # Further Security #
 

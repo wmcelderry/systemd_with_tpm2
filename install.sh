@@ -58,12 +58,22 @@ function update_initramfs()
 	update-initramfs -u -k "$(uname -r)"
 }
 
-function tldr_just_work()
+function tldr_just_work_old()
 {
+    #This compiles System D with TPM2 support.  Apparently not needed for a new install anymore, but left 'just in case'.
 	prereqs && \
 	install_docker && \
 	compile_systemd_with_tpm2 && \
 	install_systemd_with_tpm2 && \
+	install_crypt_setup_mod_scripts && \
+	update_initramfs && \
+	echo SystemD with TPM2 installation complete.
+}
+
+function tldr_just_work()
+{
+	prereqs && \
+	install_docker && \
 	install_crypt_setup_mod_scripts && \
 	update_initramfs && \
 	echo SystemD with TPM2 installation complete.

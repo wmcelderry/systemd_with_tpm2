@@ -73,7 +73,6 @@ function tldr_just_work_old()
 function tldr_just_work()
 {
 	prereqs && \
-	install_docker && \
 	install_crypt_setup_mod_scripts && \
 	update_initramfs && \
 	echo SystemD with TPM2 installation complete.

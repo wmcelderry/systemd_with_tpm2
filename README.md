@@ -3,14 +3,22 @@
 
 ## Installation:
 ### TLDR:
-If you just 'want it to work'  then run `sudo ./install.sh`.  and everything *should* work.  It will install Docker on your host system and then do all the work inside docker, so there is minimal impact.  the CWD will get some extra packages added to it, plus some extra directories with source files inside, but you can ignore all of that - once the script has completed successfully this entire directory can be removed.
+If you have a LUKS container and want it to unlock, without reading the scripts, run `sudo ./install.sh`.  This will:
+    1. create a crypttab for you (unless one exists)
+    2. install libtss2 and associated
+    3. patch cryptsetup scripts, include necessary components in the initramfs
+    4. update the initramfs
+and then you may need to use 'systemd-cryptenroll' to enroll a LUKS TPM2 key, if you haven't done that already.
+
+Current installations of Ubuntu come with System D that are built to support TPM2 already.
+If you're trying to get older Ubuntu to work with a TPM, you'll need to modify the scripts to build SystemD with TPM2 support enabled.  Code is available in the install script, it will install Docker on your host system and then do all the work inside docker, so there is minimal impact.  The CWD will get some extra packages added to it, plus some extra directories with source files inside, but you can ignore all of that - once the script has completed successfully this entire directory can be removed.
 
 ### I want to understand!
 0. Read the scripts for full details of what's happening.  They've been documented by function names, and should be reasonably easy to understand both what's happening and why it is happening.
 	start with install.sh 'tldr_just_Work' and read the rest of the functions from there.
-1. cryptroot
-	replaces /usr/share/initramfs/local-top/cryptroot
-2. cryptsetup_functions
+1. patches/cryptroot.patch
+	patches /usr/share/initramfs/local-top/cryptroot
+2. patches/cryptsetup_functions.patch
 	replaces /usr/lib/cryptsetup/functions.sh
 3. systemd_cryptsetup_hook
 	adds to /etc/initramfs-tools/hooks
@@ -64,9 +72,9 @@ NB: big thanks to the authors of these articles - they helped me get most of the
    - lvcreate
 4. Install Ubuntu in to correct LV and unencrypted EFI system and /boot partitions!
 5. Reboot in to the new Ubuntu environment:
-    - the system halts in the initrd shell as it does not know how to unlock the LUKS (crypttab not yet created) and find the LV  used as root.
+    - the system halts in the initrd shell as it does not know how to unlock the LUKS (crypttab not yet created) and find the LV used as root.
     - the user has to manually unlock the LUKS partition with cryptsetup, then exit the shell and the system continues to boot.
-6. Install git, get this repo, create the crypttab, run install.sh
+6. Install git, get this repo, run `sudo ./install.sh`
 7. Store a key in the TPM for LUKS
    `systemd-cryptenroll`
 8. Reboot.

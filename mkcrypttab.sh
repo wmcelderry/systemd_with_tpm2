@@ -1,11 +1,12 @@
 #!/bin/bash
 
-DEV="${1}"
+dev="${1}"
+volname="${2:-luks}"
 
-if [[ -z "${DEV}" ]]; then
+if [[ -z "${dev}" ]]; then
     #default to use current root.
-    DEV="$(mount  | grep 'on / ' | awk '{print $1;}')"
-    echo "Defaulting to current root device: ${DEV}" 1>&2
+    dev="$(mount  | grep 'on / ' | awk '{print $1;}')"
+    echo "Cryptab: Defaulting to current root device: ${dev}" 1>&2
 fi
 
-echo "luks $(sudo blkid --output export "${DEV}"  | grep ^UUID) none tpm2-device=auto"
+echo "${volname} $(sudo blkid --output export "${dev}"  | grep ^UUID) none tpm2-device=auto"

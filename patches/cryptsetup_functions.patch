@@ -34,7 +34,7 @@ index 339f0fd..a949c6a 100644
          unset -v CRYPTTAB_OPTION_keyslot
      fi
  
-+    if [[ -z "${CRYPTTAB_OPTION_tpm2_device}" ]] ; then
++    if [[ -z "${CRYPTTAB_OPTION_tpm2_device}" ]] || [ "$keyfile" = "-" ]; then
 +
      /sbin/cryptsetup -T1 \
          ${CRYPTTAB_OPTION_header:+--header="$CRYPTTAB_OPTION_header"} \
@@ -44,7 +44,7 @@ index 339f0fd..a949c6a 100644
          --type="$CRYPTTAB_TYPE" --key-file="$keyfile" \
          open -- "$CRYPTTAB_SOURCE" "$CRYPTTAB_NAME"
 +    else
-+	/lib/systemd/systemd-cryptsetup attach "${CRYPTTAB_NAME}" "${CRYPTTAB_SOURCE}" "${keyfile}" "tpm2-device=${CRYPTTAB_OPTION_tpm2_device}"
++	/lib/systemd/systemd-cryptsetup attach "${CRYPTTAB_NAME}" "${CRYPTTAB_SOURCE}" "${keyfile}" "tpm2-device=${CRYPTTAB_OPTION_tpm2_device},headless"
 +    fi
 +
  }

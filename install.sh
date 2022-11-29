@@ -3,9 +3,7 @@
 
 function install_tss2()
 {
-	#apt install libtss2 libtss2-fapi1 libtss2-rc0 libtss2-tctildr0
-    #are all of these needed? perhaps even the 'libtss2-dev' as used before.
-	apt install libtss2 libtss2-fapi1 libtss2-rc0 libtss2-tctildr0
+	apt install libtss2-dev libtss2-fapi1 libtss2-rc0 libtss2-tctildr0
 }
 
 function mkcrypttab()

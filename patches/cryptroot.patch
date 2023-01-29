@@ -2,12 +2,18 @@ diff --git a/cryptroot.orig b/cryptroot
 index 8604084..e704949 100755
 --- a/cryptroot.orig
 +++ b/cryptroot
-@@ -155,7 +155,7 @@ setup_mapping() {
+@@ -155,10 +155,10 @@ setup_mapping() {
  
      local count=0 maxtries="${CRYPTTAB_OPTION_tries:-3}" fstype vg rv
      while [ $maxtries -le 0 ] || [ $count -lt $maxtries ]; do
 -        if [ -z "${CRYPTTAB_OPTION_keyscript+x}" ] && [ "$CRYPTTAB_KEY" != "none" ]; then
-+        if [ -z "${CRYPTTAB_OPTION_keyscript+x}" ] && ( [ -n "${CRYPTTAB_OPTION_tpm2_device}" ] || [ "$CRYPTTAB_KEY" != "none" ] ); then
-             # unlock via keyfile
-             unlock_mapping "$CRYPTTAB_KEY"
-         else
+-            # unlock via keyfile
+-            unlock_mapping "$CRYPTTAB_KEY"
+-        else
++        # If keyscript is provided, unlock with it.
++        # If keyfile or TPM2 device are provided, unlock with them.
++        # If keyfile/TPM2 is not provided (or if they fail to unlock), fall back to interactive unlock.
++        if ! ([ -z "${CRYPTTAB_OPTION_keyscript+x}" ] && ([ -n "${CRYPTTAB_OPTION_tpm2_device}" ] || [ "$CRYPTTAB_KEY" != "none" ]) && unlock_mapping "$CRYPTTAB_KEY"); then
+             # unlock interactively or via keyscript
+             run_keyscript "$count" | unlock_mapping
+         fi

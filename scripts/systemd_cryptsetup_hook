@@ -20,6 +20,7 @@ esac
 # Begin real processing
 
 copy_exec /lib/systemd/systemd-cryptsetup /lib/systemd
+copy_exec /lib/x86_64-linux-gnu/cryptsetup/libcryptsetup-token-systemd-tpm2.so /lib/x86_64-linux-gnu/cryptsetup/libcryptsetup-token-systemd-tpm2.so
 for i in /lib/x86_64-linux-gnu/libtss2*
 do
 	copy_exec ${i} /lib/x86_64-linux-gnu

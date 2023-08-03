@@ -24,3 +24,8 @@ for i in /lib/x86_64-linux-gnu/libtss2*
 do
 	copy_exec ${i} /lib/x86_64-linux-gnu
 done
+
+for i in /lib/x86_64-linux-gnu/cryptsetup/*
+do
+	copy_file ${i} ${i}
+done

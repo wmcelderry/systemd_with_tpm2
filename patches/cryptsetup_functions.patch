@@ -1,8 +1,8 @@
 diff --git a/cryptsetup_functions b/cryptsetup_functions
-index 339f0fd..a949c6a 100644
+index 73f5f2a..1328bd0 100644
 --- a/cryptsetup_functions
 +++ b/cryptsetup_functions
-@@ -84,7 +84,8 @@ crypttab_parse_options() {
+@@ -86,7 +86,8 @@ crypttab_parse_options() {
               CRYPTTAB_OPTION_same_cpu_crypt \
               CRYPTTAB_OPTION_submit_from_crypt_cpus \
               CRYPTTAB_OPTION_no_read_workqueue \
@@ -12,25 +12,25 @@ index 339f0fd..a949c6a 100644
      # use $_CRYPTTAB_OPTIONS not $CRYPTTAB_OPTIONS as options values may
      # contain '\054' which is decoded to ',' in the latter
      for x in $_CRYPTTAB_OPTIONS; do
-@@ -160,6 +161,7 @@ crypttab_validate_option() {
+@@ -162,6 +163,7 @@ crypttab_validate_option() {
          submit-from-crypt-cpus) OPTION="submit_from_crypt_cpus";;
          no-read-workqueue) OPTION="no_read_workqueue";;
          no-write-workqueue) OPTION="no_write_workqueue";;
-+	tpm2-device) OPTION="tpm2_device";;
++        tpm2-device) OPTION="tpm2_device";;
      esac
  
      case "$o" in
-@@ -224,6 +226,9 @@ crypttab_validate_option() {
+@@ -226,6 +228,9 @@ crypttab_validate_option() {
                  return 1
              fi
          ;;
-+	tpm2-device)
-+		#validate path or 'auto'
-+	;;
++        tpm2-device)
++            #validate path or 'auto'
++        ;;
          # and now the flags
          verify) ;;
          loud) ;;
-@@ -358,6 +363,8 @@ unlock_mapping() {
+@@ -363,6 +368,8 @@ unlock_mapping() {
          unset -v CRYPTTAB_OPTION_keyslot
      fi
  
@@ -39,12 +39,12 @@ index 339f0fd..a949c6a 100644
      /sbin/cryptsetup -T1 \
          ${CRYPTTAB_OPTION_header:+--header="$CRYPTTAB_OPTION_header"} \
          ${CRYPTTAB_OPTION_cipher:+--cipher="$CRYPTTAB_OPTION_cipher"} \
-@@ -380,6 +387,10 @@ unlock_mapping() {
+@@ -385,6 +392,10 @@ unlock_mapping() {
          ${CRYPTTAB_OPTION_no_write_workqueue:+--perf-no_write_workqueue} \
          --type="$CRYPTTAB_TYPE" --key-file="$keyfile" \
          open -- "$CRYPTTAB_SOURCE" "$CRYPTTAB_NAME"
 +    else
-+	/lib/systemd/systemd-cryptsetup attach "${CRYPTTAB_NAME}" "${CRYPTTAB_SOURCE}" "${keyfile}" "tpm2-device=${CRYPTTAB_OPTION_tpm2_device},headless"
++        /lib/systemd/systemd-cryptsetup attach "${CRYPTTAB_NAME}" "${CRYPTTAB_SOURCE}" "${keyfile}" "tpm2-device=${CRYPTTAB_OPTION_tpm2_device},headless"
 +    fi
 +
  }

@@ -3,7 +3,7 @@
 
 function install_tss2()
 {
-	apt -y install --no-install-recommends libtss2-dev libtss2-fapi1 libtss2-rc0 libtss2-tctildr0
+	apt-get -y install --no-install-recommends libtss2-dev libtss2-fapi1 libtss2-rc0 libtss2-tctildr0
 }
 
 function mkcrypttab()
@@ -27,14 +27,14 @@ function prereqs_old()
 	    tip: can use blkid to get the UUID of the device too.
 
 	  2) You must have installed necessary TSS2 libraries
-	    e.g. sudo apt install libtss2-dev
+	    e.g. sudo apt-get install libtss2-dev
 	EOF
 
 	read -p "Enter to continue"
 }
 function install_docker()
 {
-	apt install -y docker.io
+	apt-get install -y docker.io
 }
 
 function compile_systemd_with_tpm2()

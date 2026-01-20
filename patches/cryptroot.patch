@@ -1,13 +1,19 @@
-diff --git a/cryptroot.orig b/cryptroot
-index 8604084..e704949 100755
---- a/cryptroot.orig
+diff --git a/cryptroot b/cryptroot
+index 90b521b..b51e99d 100755
+--- a/cryptroot
 +++ b/cryptroot
-@@ -155,7 +155,7 @@ setup_mapping() {
+@@ -150,9 +150,12 @@ setup_mapping() {
  
      local count=0 maxtries="${CRYPTTAB_OPTION_tries:-3}" fstype vg rv
      while [ $maxtries -le 0 ] || [ $count -lt $maxtries ]; do
 -        if [ -z "${CRYPTTAB_OPTION_keyscript+x}" ] && [ "$CRYPTTAB_KEY" != "none" ]; then
-+        if [ -z "${CRYPTTAB_OPTION_keyscript+x}" ] && ( [ -n "${CRYPTTAB_OPTION_tpm2_device}" ] || [ "$CRYPTTAB_KEY" != "none" ] ); then
++        if [ -z "${CRYPTTAB_OPTION_keyscript+x}" ] && ([ -n "${CRYPTTAB_OPTION_tpm2_device}" ] || [ "$CRYPTTAB_KEY" != "none" ]) ; then
              # unlock via keyfile
-             unlock_mapping "$CRYPTTAB_KEY"
+-            unlock_mapping "$CRYPTTAB_KEY"
++            if ! unlock_mapping "$CRYPTTAB_KEY" ; then
++                cryptsetup_message "ERROR: could not unlock with key or TPM2, falling back to password entry:"
++                unlock_mapping "-" #force unlocking from stdin.
++            fi
          else
+             # unlock interactively or via keyscript
+             run_keyscript "$count" | unlock_mapping

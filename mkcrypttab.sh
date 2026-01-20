@@ -9,4 +9,4 @@ if [[ -z "${dev}" ]]; then
     echo "Cryptab: Defaulting to current root device: ${dev}" 1>&2
 fi
 
-echo "${volname} $(lsblk -n -o uuid "${dev}") none tpm2-device=auto"
+echo "${volname} UUID=$(lsblk -n -o uuid "${dev}") none tpm2-device=auto"
